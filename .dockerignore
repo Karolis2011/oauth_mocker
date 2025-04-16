@@ -1,0 +1,11 @@
+target/
+*.rs.bk
+*.toml.bk
+*.log
+*.tmp
+node_modules/
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo

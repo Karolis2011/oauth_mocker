@@ -1,0 +1,63 @@
+
+[[keys]]
+# Determines if the key is used for signing JWT tokens
+active = true
+# Key type, only "PEM_RS256" is supported for now
+kind = "PEM_RS256"
+# This is key ID is used to identify the key in the JWT token
+kid = "ojG_49rL_kuWDYN5Zs1Bhw"
+# This is a private key in PEM PKCS#8 format
+key = """
+-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCjUcTeG9lfNeE7
+vzP3xFN0sRsIpCjgZJwcliE4NrA2a+B5rnY2C/ZYOo5LZI6AXbnG5iLcgHOPOhn+
+9pfyULBRlZ6tuFdOs+xqxtGjG9XAfbZp0wGf4Sr+3qrY8BZz7sYmsQOHn4S2Qtmr
+DC4WdMTvXa6FebR2fq4oQFYz84G7S5pLRtxt/QAcUrEhVsIEkC8854mngG/rEMpK
+eNL4TCjMw70Nv/qUBiHzGXikLJzli+uBNzJsOyJYx0pADDQUF2NCxkSf7f48pvdm
+6tD4wiqbzTG9xEGqpfT/Ah4oS/rcIuafmUulXkxa8MPF0Nf1twEFQOXP+BZliRGg
+7IJMzT1XAgMBAAECggEAKs91Vm9gZHfAKaQuICVjZvRBzNsTJ/bXgRrNbGnReQKA
+HgVgUTyDf48h25tpSzbGSt/qhXhaUlH9nHrRS6BhB5G7vXfT0vqQ31BshV/3gPSz
+CzxXcaxZU+PUTvdoO018vYmrDjL/W7NcUVzo+9PyB3i8FZrYdjMwvbZXoliTSh/U
+/ZEblNWJXskhRvt3T1UtUj/hOmX2MqOMRt7AZGhhObvTZgOOEf3eLngdC/NbjLcl
+F5KUw0BDV42Gk46P1hAIramm9DArhWn7CnBNG1hGboa/hkSoWXnUEiJEdQYrYT/u
+Ypfv0hIt8msozxFuA0j2DR3pVT+zpGlJHh9bQCTW0QKBgQDSUDmleithU5lrMH9f
+lZ6PMiH1vyulbAjTsiVXJSFe/e3JyOpY08rtAf5/lKOMYmHCXyeT2GNJzMbZCkTX
+cYR/lelBZfM6jNQdxundvPWaM7rTXLxIjbxKN8xSlgS3LAVO3ANPD1i+x8FkrvTE
+wI/yDsfMRtDmn40EF3K+r4awHwKBgQDGzCdhVZaqTGeM16ky+Uk1eN04UPRpU6fJ
+nWRwK1C76uzSnwWGfLYswXHUFoxV4TNIlI6rDYv03P7gJ1JkD9JYd1DZ1NLREy6f
+zKE97WEnh6Geuao+6Vl30G3sAi6zNSe/GOUBXpJYlvfypQkIbEKfOiDYChlMthIG
+e3nGAZBryQKBgCV01E98aq1yzighAw5q/0pRi2rRGVzk2M2bNLtIiaD5aJg/iD05
+uzJq4ICoYFhoTTDo8YuLRmOmbOPKyGf2d7qhYGGdXqxW2JBVFOHA/ZzxCZ0LLx1c
+4OP2/BTZUw2scWWSGaTC/vM7cF4WKtG/2eMqbrsbAamRUPQhmPYNHNfRAoGAOfSW
+nne3PtqbbaIJv8SRJTehNqPTPUmYJtztxQ27sa0hcZ3OnJCLA605pB0WuIq4yrYU
+iaWfYblzzKFqEaXTKttOBNNYyn8PHqMndshXhJCz+3QhP8oDvTxUb3OLbc9XUQzO
+5oFNpOoOSvz2DzCQk578qD75dTW3N5CTxbf7BJECgYA+2xUsZyYAaQe2xWLzQlPn
+pEBidOgk88KS2GTkYf4YRJEjcZdmzBKCkNQxSRwsi9NLef+nKV5ycq4io0Gwn5ZU
+n3t4AlAZCFS/QLEsCcCyQmuLVHdknSkA8WCVk8FmFsxAxwydvxm1gqxj3/NQAcTy
+K33wmjG6Y4ZxxZ478jTQJg==
+-----END PRIVATE KEY-----
+"""
+
+# This is an example configuration file for a hypothetical application.
+[[clients]]
+# The client ID is used to identify the client application
+client_id = "my-client"
+# The client secret is used to authenticate the client application
+client_secret = "my-secret"
+
+# Users are defined here
+# Each user has an ID, name, email, and claims
+# Claims are additional information about the user, such as roles or groups
+[[users]]
+id = "1"
+name = "Alice"
+email = "alice@example.com"
+[users.claims]
+groups = "admin, user"
+
+[[users]]
+id = "2"
+name = "Bob"
+email = "bob@example.com"
+[users.claims]
+groups = "user"

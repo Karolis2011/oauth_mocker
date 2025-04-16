@@ -1,0 +1,16 @@
+[package]
+name = "oauth_mocker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+askama = { version = "0.12.1", features = ["with-rocket"] }
+askama_rocket = "0.12.0"
+base64 = "0.22.1"
+chrono = "0.4.40"
+jsonwebtoken = "9.3.1"
+rocket = { version = "0.5.1", features = ["json"] }
+rsa = "0.9.8"
+serde = "1.0.219"
+toml = "0.8.20"
+uuid = { version = "1.1", features = ["v4"] }
