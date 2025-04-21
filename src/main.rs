@@ -3,6 +3,7 @@ use std::sync::Mutex;
 
 use base64::Engine;
 use jsonwebtoken::{EncodingKey, Header};
+use rocket::form::Form;
 use rocket::request::FromRequest;
 use rocket::{Request, State};
 use rocket::serde::json::Json;
@@ -11,7 +12,6 @@ use rsa::pkcs8::DecodePrivateKey;
 use rsa::traits::PublicKeyParts;
 use askama_rocket::Template; // Correct import for Askama Rocket integration
 use uuid::Uuid;
-use rocket::http::HeaderMap;
 #[macro_use]
 extern crate rocket;
 
@@ -443,27 +443,37 @@ struct TokenResponse {
     id_token: String,
 }
 
-// Updated the token endpoint to include nonce in the ID token
-#[post("/oauth2/token?grant_type=authorization_code&<code>&<redirect_uri>&<client_id>&<client_secret>")]
+#[derive(FromForm)]
+struct TokenRequest {
+    grant_type: String,
+    code: String,
+    redirect_uri: Option<String>,
+    client_id: String,
+    client_secret: String,
+}
+
+#[post("/oauth2/token", data = "<form>", format = "application/x-www-form-urlencoded")]
 fn token_code_grant(
-    code: &str,
-    redirect_uri: Option<&str>,
-    client_id: &str,
-    client_secret: &str,
+    form: Form<TokenRequest>,
     auth_code_store: &State<AuthCodeStore>,
     access_token_store: &State<AccessTokenStore>,
     active_key: &State<ActiveJwtKey>,
     config: &State<OAuthConfig>,
-    cookies: &rocket::http::CookieJar<'_>,
 ) -> Result<Json<TokenResponse>, &'static str> {
+    let form = form.into_inner();
+
+    if form.grant_type != "authorization_code" {
+        return Err("Unsupported grant type");
+    }
+
     // Validate client_id and client_secret
-    if !config.inner().clients.iter().any(|client| client.client_id == client_id && client.client_secret == client_secret) {
+    if !config.inner().clients.iter().any(|client| client.client_id == form.client_id && client.client_secret == form.client_secret) {
         return Err("Invalid client_id or client_secret");
     }
 
     // Validate the authorization code
-    if let Some((stored_client_id, nonce)) = auth_code_store.remove(code) {
-        if stored_client_id != client_id {
+    if let Some((stored_client_id, nonce)) = auth_code_store.remove(&form.code) {
+        if stored_client_id != form.client_id {
             return Err("Invalid client_id for the provided code");
         }
 
@@ -471,13 +481,13 @@ fn token_code_grant(
         let access_token = Uuid::new_v4().to_string();
 
         // Store the access token
-        access_token_store.insert(access_token.clone(), client_id.to_string());
+        access_token_store.insert(access_token.clone(), form.client_id.clone());
 
         // Generate an ID token using ActiveJwtKey
         let user = config
             .users
             .iter()
-            .find(|u| u.id == client_id)
+            .find(|u| u.id == form.client_id)
             .ok_or("User not found")?;
 
         let mut id_token_claims = user.claims.clone();
@@ -485,7 +495,7 @@ fn token_code_grant(
             id_token_claims.insert("nonce".to_string(), nonce);
         }
 
-        let id_token = active_key.generate_id_token(user, client_id)?;
+        let id_token = active_key.generate_id_token(user, &form.client_id)?;
 
         // Return the response
         let response = TokenResponse {
