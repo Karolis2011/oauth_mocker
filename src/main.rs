@@ -16,7 +16,7 @@ use uuid::Uuid;
 extern crate rocket;
 
 pub struct AuthCodeStore {
-    store: Mutex<HashMap<String, (String, Option<String>)>>, // Updated to store client_id and nonce
+    store: Mutex<HashMap<String, (String, String, Option<String>)>>, // Updated to store client_id and nonce
 }
 
 impl AuthCodeStore {
@@ -26,15 +26,15 @@ impl AuthCodeStore {
         }
     }
 
-    pub fn insert(&self, code: String, client_id: String, nonce: Option<String>) {
+    pub fn insert(&self, code: String, client_id: String, user_id: String, nonce: Option<String>) {
         if let Ok(mut store) = self.store.lock() {
-            store.insert(code, (client_id, nonce));
+            store.insert(code, (client_id, user_id, nonce));
         } else {
             eprintln!("Failed to acquire lock for AuthCodeStore");
         }
     }
 
-    pub fn remove(&self, code: &str) -> Option<(String, Option<String>)> {
+    pub fn remove(&self, code: &str) -> Option<(String, String, Option<String>)> {
         match self.store.lock() {
             Ok(mut store) => store.remove(code),
             Err(_) => {
@@ -46,7 +46,7 @@ impl AuthCodeStore {
 }
 
 pub struct AccessTokenStore {
-    store: Mutex<HashMap<String, String>>,
+    store: Mutex<HashMap<String, (String, String)>>,
 }
 
 impl AccessTokenStore {
@@ -56,15 +56,15 @@ impl AccessTokenStore {
         }
     }
 
-    pub fn insert(&self, token: String, client_id: String) {
+    pub fn insert(&self, token: String, client_id: String, user_id: String) {
         if let Ok(mut store) = self.store.lock() {
-            store.insert(token, client_id);
+            store.insert(token, (client_id, user_id));
         } else {
             eprintln!("Failed to acquire lock for AccessTokenStore");
         }
     }
 
-    pub fn get(&self, token: &str) -> Option<String> {
+    pub fn get(&self, token: &str) -> Option<(String, String)> {
         match self.store.lock() {
             Ok(store) => store.get(token).cloned(),
             Err(_) => {
@@ -159,6 +159,7 @@ struct JwtBodyClaims {
     exp: i64,
     nbf: Option<i64>,
     aud: Option<String>,
+    nonce: Option<String>,
     #[serde(flatten)]
     other_claims: Option<HashMap<String, String>>,
 }
@@ -166,7 +167,6 @@ struct JwtBodyClaims {
 struct ActiveJwtKey {
     encoding_key: EncodingKey,
     header: Header,
-    kid: String,
 }
 
 
@@ -179,18 +179,18 @@ impl ActiveJwtKey {
             }
             _ => panic!("Unsupported key type"),
         };
-        let header = match key.kind.as_str() {
+        let mut header = match key.kind.as_str() {
             "PEM_RS256" => Header::new(jsonwebtoken::Algorithm::RS256),
             _ => panic!("Unsupported key type"),
         };
+        header.kid = Some(key.kid.clone());
         ActiveJwtKey {
             encoding_key,
             header,
-            kid: key.kid.clone(),
         }
     }
 
-    fn generate_id_token(&self, user: &User, client_id: &str) -> Result<String, &'static str> {
+    fn generate_id_token(&self, user: &User, client_id: &str, nonce: Option<&str>) -> Result<String, &'static str> {
         let claims = JwtBodyClaims {
             sub: user.id.clone(),
             name: user.name.clone(),
@@ -199,6 +199,7 @@ impl ActiveJwtKey {
             exp: (chrono::Utc::now() + chrono::Duration::seconds(3600)).timestamp(),
             nbf: None,
             aud: client_id.to_string().into(),
+            nonce: nonce.map(|n| n.to_string()),
             other_claims: Some(user.claims.clone().into_iter().collect()),
         };
         jsonwebtoken::encode(
@@ -246,7 +247,7 @@ fn rocket() -> _ {
 }
 
 #[get("/")]
-fn test<'a>(host: &'a rocket::http::uri::Host<'a>) -> &'static str {
+fn test() -> &'static str {
     "Hello, world!"
 }
 
@@ -328,22 +329,13 @@ struct LoginCookies {
 struct LoginTemplate {
     users: Vec<User>,
     cookies: LoginCookies, // Updated cookies field
-    claims_display: String, // Added a field to store claims as a renderable string
 }
 
 impl LoginTemplate {
     fn new(users: Vec<User>, cookies: LoginCookies) -> Self {
-        let claims_display = users
-            .iter()
-            .flat_map(|user| &user.claims)
-            .map(|(key, value)| format!("{}: {}", key, value))
-            .collect::<Vec<_>>()
-            .join(", ");
-
         LoginTemplate {
             users,
             cookies,
-            claims_display,
         }
     }
 }
@@ -412,6 +404,7 @@ fn finish_login(
     let client_id = cookies.get("client_id").map(|c| c.value()).ok_or("Missing client_id")?;
     let redirect_uri = cookies.get("redirect_uri").map(|c| c.value()).ok_or("Missing redirect_uri")?;
     let state = cookies.get("state").map(|c| c.value());
+    let nonce = cookies.get("nonce").map(|c| c.value());
 
     // Validate user
     if !_config.inner().users.iter().any(|u| u.id == user) {
@@ -422,7 +415,7 @@ fn finish_login(
     let auth_code = Uuid::new_v4().to_string();
 
     // Store the authorization code with the client_id
-    auth_code_store.insert(auth_code.clone(), client_id.to_string(), cookies.get("nonce").map(|c| c.value().to_string()));
+    auth_code_store.insert(auth_code.clone(), client_id.to_string(), user.to_string(), nonce.map(|n| n.to_string()));
 
     // Redirect to the redirect_uri with the authorization code and state
     let mut redirect_url = format!("{}?code={}", redirect_uri, auth_code);
@@ -472,30 +465,25 @@ fn token_code_grant(
     }
 
     // Validate the authorization code
-    if let Some((stored_client_id, nonce)) = auth_code_store.remove(&form.code) {
+    if let Some((stored_client_id, user_id, nonce)) = auth_code_store.remove(&form.code) {
         if stored_client_id != form.client_id {
             return Err("Invalid client_id for the provided code");
         }
 
         // Generate an access token
         let access_token = Uuid::new_v4().to_string();
-
-        // Store the access token
-        access_token_store.insert(access_token.clone(), form.client_id.clone());
-
+        
         // Generate an ID token using ActiveJwtKey
         let user = config
-            .users
-            .iter()
-            .find(|u| u.id == form.client_id)
-            .ok_or("User not found")?;
+        .users
+        .iter()
+        .find(|u| u.id == user_id)
+        .ok_or("User not found")?;
 
-        let mut id_token_claims = user.claims.clone();
-        if let Some(nonce) = nonce {
-            id_token_claims.insert("nonce".to_string(), nonce);
-        }
+        // Store the access token
+        access_token_store.insert(access_token.clone(), form.client_id.clone(), user_id.clone());
 
-        let id_token = active_key.generate_id_token(user, &form.client_id)?;
+        let id_token = active_key.generate_id_token(user, &form.client_id, nonce.as_deref())?;
 
         // Return the response
         let response = TokenResponse {
@@ -549,7 +537,7 @@ fn userinfo(
     let token = auth.0;
 
     // Validate the access token
-    let client_id = access_token_store
+    let (_, user_id) = access_token_store
         .get(&token)
         .ok_or("Invalid or expired access token")?;
 
@@ -557,7 +545,7 @@ fn userinfo(
     let user = config
         .users
         .iter()
-        .find(|u| u.id == client_id)
+        .find(|u| u.id == user_id)
         .ok_or("User not found")?;
 
     // Construct the userinfo response

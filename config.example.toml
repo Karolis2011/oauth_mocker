@@ -1,3 +1,5 @@
+# Determines if OIDC responds with http or https URLs
+use_tls = false
 
 [[keys]]
 # Determines if the key is used for signing JWT tokens
