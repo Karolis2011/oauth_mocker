@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>OAuth Mocker</h1>
+<p class="subtitle">A mock OpenID Connect provider. Issuer: <code>{{ issuer }}</code></p>
+
+<h2>Endpoints</h2>
+<section class="panel">
+  <table class="endpoints">
+    {% for (label, url) in endpoints %}
+    <tr><td>{{ label }}</td><td><a class="mono" href="{{ url }}">{{ url }}</a></td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<h2>Clients</h2>
+<section class="panel">
+  <table class="endpoints">
+    {% for client in clients %}
+    <tr>
+      <td class="mono">{{ client.id }}</td>
+      <td>
+        {{ client.name }}
+        {% if client.public %}<span class="chip">public, PKCE</span>{% else %}<span class="chip plain">confidential</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+<p class="subtitle" style="margin-top: 16px">{{ user_count }} user(s) configured.</p>
+{% endblock %}

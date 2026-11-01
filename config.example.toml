@@ -1,5 +1,40 @@
-# Determines if OIDC responds with http or https URLs
+# OAuth Mocker example configuration. Copy to config.toml (or point OAUTH_MOCKER_CONFIG at it).
+# Every option is shown with its default unless noted. See docs/DESIGN.md for the details.
+
+# Use https:// in discovery and token URLs when the mock sits behind a TLS proxy.
 use_tls = false
+# Fixed issuer URL. When unset it is derived from the Host header of each request.
+# issuer = "http://localhost:8080"
+# Scope used when an authorization request does not ask for any.
+default_scope = "openid profile email"
+# Make the token endpoint require a redirect_uri identical to the authorize request (RFC 6749 4.1.3).
+# Off by default. Turn it on to catch clients that a real provider would reject. Clients can override it.
+strict_redirect_uri = false
+# What to do with a login_hint (matches a user's id, name or email, ignoring case):
+#   "highlight"  list the matching account first, marked as suggested
+#   "auto"       skip the account picker when exactly one account matches
+#   "ignore"     do not look at the hint
+login_hint = "highlight"
+
+[tokens]
+code_ttl = 60          # authorization code lifetime, seconds
+access_ttl = 3600      # access token lifetime, seconds
+id_ttl = 3600          # ID token lifetime, seconds
+refresh_ttl = 86400    # refresh token lifetime, seconds, 0 disables refresh tokens
+rotate_refresh = true  # issue a new refresh token on every refresh
+
+[ui]
+title = "Mock Login"
+# CSS appended after the built-in stylesheet. Overriding the variables is usually enough.
+custom_css = """
+:root { --accent: #5b5bd6; }
+"""
+# custom_css_file = "theme.css"
+
+# Custom scopes, and overrides of the built-in ones (profile -> name, email -> email + email_verified).
+# A claim named by some scope is released only when that scope is granted, other claims are always released.
+[scopes.groups]
+claims = ["groups"]
 
 [[keys]]
 # Determines if the key is used for signing JWT tokens
@@ -8,7 +43,7 @@ active = true
 kind = "PEM_RS256"
 # This is key ID is used to identify the key in the JWT token
 kid = "ojG_49rL_kuWDYN5Zs1Bhw"
-# This is a private key in PEM PKCS#8 format
+# Private key in PEM PKCS#8 format. This one is a public test key, never use it for anything real.
 key = """
 -----BEGIN PRIVATE KEY-----
 MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCjUcTeG9lfNeE7
@@ -40,26 +75,41 @@ K33wmjG6Y4ZxxZ478jTQJg==
 -----END PRIVATE KEY-----
 """
 
-# This is an example configuration file for a hypothetical application.
+# A confidential client.
 [[clients]]
-# The client ID is used to identify the client application
 client_id = "my-client"
-# The client secret is used to authenticate the client application
 client_secret = "my-secret"
+name = "My App"
+# redirect_uris = ["http://localhost:3000/callback"]   # exact match, any URI is accepted when omitted
+# strict_redirect_uri = true                           # per-client override of the global option
+# scopes = ["openid", "profile", "email", "groups"]   # restrict requestable scopes
+# access_ttl = 600                                     # per-client id_ttl / access_ttl / refresh_ttl
 
-# Users are defined here
-# Each user has an ID, name, email, and claims
-# Claims are additional information about the user, such as roles or groups
+# Failure injection, for testing how an app copes with a misbehaving provider.
+# [clients.simulate]
+# token_error = "invalid_grant"
+# refresh_error = "server_error"    # refresh_token grants only
+# token_delay_ms = 1500
+# userinfo_error = "invalid_token"
+
+# A public client (no secret), PKCE is mandatory.
+[[clients]]
+client_id = "my-spa"
+name = "My Single Page App"
+
+# Users, with any extra claims as JSON-compatible values.
 [[users]]
 id = "1"
 name = "Alice"
 email = "alice@example.com"
 [users.claims]
-groups = "admin, user"
+email_verified = true
+groups = ["admin", "user"]
 
 [[users]]
 id = "2"
 name = "Bob"
 email = "bob@example.com"
 [users.claims]
-groups = "user"
+email_verified = false
+groups = ["user"]

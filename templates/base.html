@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page.title }}</title>
+  <style>
+{% include "style.css" %}
+  </style>
+{% if !page.custom_css.is_empty() %}
+  <style id="custom-css">
+{{ page.custom_css|safe }}
+  </style>
+{% endif %}
+</head>
+<body>
+  <main class="shell">
+{% block content %}{% endblock %}
+    <footer class="note">OAuth Mocker &middot; for development and testing only</footer>
+  </main>
+</body>
+</html>

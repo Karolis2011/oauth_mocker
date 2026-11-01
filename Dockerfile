@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Use the official Rust image as the base image for building
-FROM rust:1.86-alpine AS builder
+FROM rust:1.99-alpine AS builder
 
 # Set the working directory
 WORKDIR /app
@@ -27,8 +27,7 @@ COPY --from=builder /app/oauth_mocker /app/oauth_mocker
 
 # Expose the port the application will run on
 ## ensure the container listens globally on port 8080
-ENV ROCKET_ADDRESS=0.0.0.0
-ENV ROCKET_PORT=8080
+ENV OAUTH_MOCKER_BIND=0.0.0.0:8080
 
 EXPOSE 8080
 

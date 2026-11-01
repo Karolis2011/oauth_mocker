@@ -1,93 +1,61 @@
-<html>
-<head>
-    <title>Mock Login</title>
-    <link rel="stylesheet" href="https://unpkg.com/open-props/normalize.min.css">
-    <link rel="stylesheet" href="https://unpkg.com/open-props">
-    <style>
-        body {
-            font-family: var(--font-sans);
-            margin: var(--size-4);
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-        }
+{% extends "base.html" %}
 
-        .user-cards {
-            display: flex;
-            flex-direction: column;
-            gap: var(--size-4);
-            justify-content: center;
-            margin-top: var(--size-4);
-        }
+{% block content %}
+<h1>Sign in</h1>
+<p class="subtitle">Choose an account to continue to <strong>{{ client_name }}</strong>.</p>
 
-        .user-card {
-            background: var(--surface-2);
-            padding: var(--size-3);
-            border-radius: var(--radius-2);
-            box-shadow: var(--shadow-2);
-            width: 100%;
-            text-align: center;
-            font-size: var(--font-size-2);
-            margin-bottom: var(--size-3);
-        }
+<section class="panel">
+  <dl class="facts">
+    <dt>Client</dt>
+    <dd class="mono">{{ client_id }}</dd>
+    <dt>Redirect URI</dt>
+    <dd class="mono">{{ redirect_uri }}</dd>
+    {% if let Some(hint) = login_hint %}
+    <dt>Login hint</dt>
+    <dd><span class="mono">{{ hint }}</span>{% if !hint_matched %} <span class="muted">(no account matches)</span>{% endif %}</dd>
+    {% endif %}
+    <dt>Scopes</dt>
+    <dd>
+      <span class="chips">
+        {% for scope in scopes %}<span class="chip">{{ scope }}</span>{% endfor %}
+      </span>
+    </dd>
+  </dl>
+</section>
 
-        .user-card h3 {
-            margin: var(--size-2) 0;
-            font-size: var(--font-size-4);
-            max-inline-size: none;
-        }
+<form method="post" action="/login">
+  <input type="hidden" name="session" value="{{ session }}">
 
-        .user-card p {
-            margin: var(--size-1) 0;
-        }
+  <h2>Accounts</h2>
+  <div class="users">
+    {% for user in users %}
+    <button class="user{% if user.suggested %} suggested{% endif %}" type="submit" name="user" value="{{ user.id }}">
+      <span class="avatar" aria-hidden="true">{{ user.initial }}</span>
+      <span class="who">
+        <span class="name">{{ user.name }}{% if user.suggested %} <span class="chip">Suggested</span>{% endif %}</span>
+        <span class="email">{{ user.email }}</span>
+        {% if !user.claims.is_empty() %}
+        <span class="chips">
+          {% for (key, value) in user.claims %}<span class="chip plain">{{ key }}: {{ value }}</span>{% endfor %}
+        </span>
+        {% endif %}
+      </span>
+      <span class="go" aria-hidden="true">&rarr;</span>
+    </button>
+    {% endfor %}
+  </div>
 
-        .user-card ul {
-            margin-bottom: var(--size-3);
-        }
+  <div class="actions">
+    <button class="btn danger" type="submit" name="error" value="access_denied">Deny access</button>
+  </div>
 
-        button {
-            background-color: var(--surface-4);
-            border: none;
-            padding: var(--size-2);
-            border-radius: var(--radius-1);
-            cursor: pointer;
-            width: 100%;
-            margin-top: var(--size-2);
-        }
-
-        button:hover {
-            background-color: var(--surface-3);
-        }
-
-        form {
-            margin-bottom: var(--size-4);
-        }
-    </style>
-</head>
-<body>
-    <h1>Mock Login</h1>
-    <form method="get" action="/finish_login">
-        <p>Client ID: {{ cookies.client_id }}</p>
-        <p>Redirect URI: {{ cookies.redirect_uri }}</p>
-        <p>State: {{ cookies.state }}</p>
-
-        <div class="user-cards">
-            {% for user in users %}
-            <div class="user-card">
-                <h3>{{ user.name }}</h3>
-                <p>Email: {{ user.email }}</p>
-                <p>Claims:</p>
-                <ul>
-                    {% for (key, value) in user.claims %}
-                    <li>{{ key }}: {{ value }}</li>
-                    {% endfor %}
-                </ul>
-                <button type="submit" name="user" value="{{ user.id }}">Select</button>
-            </div>
-            {% endfor %}
-        </div>
-    </form>
-</body>
-</html>
+  <details class="simulate">
+    <summary>Simulate another error response</summary>
+    <div class="actions">
+      {% for (code, label) in simulated_errors %}
+      <button class="btn" type="submit" name="error" value="{{ code }}">{{ label }}</button>
+      {% endfor %}
+    </div>
+  </details>
+</form>
+{% endblock %}
