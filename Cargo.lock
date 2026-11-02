@@ -883,7 +883,7 @@ dependencies = [
 
 [[package]]
 name = "oauth_mocker"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "askama",
  "axum",
