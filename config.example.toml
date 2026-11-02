@@ -1,10 +1,16 @@
 # OAuth Mocker example configuration. Copy to config.toml (or point OAUTH_MOCKER_CONFIG at it).
 # Every option is shown with its default unless noted. See docs/DESIGN.md for the details.
 
+# Layer a built-in preset under this file to behave like a known provider: "google" or "okta".
+# Values set here win. See presets/ or run `oauth_mocker --print-preset google`, and examples/ for full configs.
+# preset = "google"
+
 # Use https:// in discovery and token URLs when the mock sits behind a TLS proxy.
 use_tls = false
 # Fixed issuer URL. When unset it is derived from the Host header of each request.
 # issuer = "http://localhost:8080"
+# Path of the issuer below that URL. Discovery is served at <issuer_path>/.well-known/openid-configuration.
+issuer_path = ""
 # Scope used when an authorization request does not ask for any.
 default_scope = "openid profile email"
 # Make the token endpoint require a redirect_uri identical to the authorize request (RFC 6749 4.1.3).
@@ -22,6 +28,34 @@ access_ttl = 3600      # access token lifetime, seconds
 id_ttl = 3600          # ID token lifetime, seconds
 refresh_ttl = 86400    # refresh token lifetime, seconds, 0 disables refresh tokens
 rotate_refresh = true  # issue a new refresh token on every refresh
+echo_refresh = true    # without rotation, repeat the unchanged refresh token in refresh responses
+# When the code exchange returns a refresh token:
+#   "always"               every time
+#   "offline_access"       when the offline_access scope is granted (Okta, Entra)
+#   "access_type_offline"  when the authorize request has access_type=offline (Google)
+refresh_when = "always"
+# Only on a user's first consent to a client, or when the request has prompt=consent (Google).
+refresh_on_first_consent_only = false
+# "opaque" random strings, or "jwt" signed with the active key.
+access_format = "opaque"
+
+# Claims of JWT access tokens. When unset: sub, aud and client_id (the client id) and scope, as in RFC 9068.
+# iss, iat, exp and jti are always added. Placeholders in strings: {client_id} {user_id} {email} {name}
+# {issuer} {scope} (space separated). A value of exactly "{scopes}" becomes an array of the scopes.
+# [tokens.access_claims]
+# aud = "api://default"
+# scp = "{scopes}"
+
+# Extra ID token claims, same placeholders. They cannot override registered claims like iss or sub.
+# [tokens.id_claims]
+# azp = "{client_id}"
+
+# Paths the endpoints are served at. They must start with / and differ from /, /login and /users.
+[endpoints]
+authorize = "/oauth2/authorize"
+token = "/oauth2/token"
+userinfo = "/userinfo"
+jwks = "/.well-known/jwks.json"
 
 [ui]
 title = "Mock Login"

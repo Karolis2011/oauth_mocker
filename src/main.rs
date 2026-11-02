@@ -4,6 +4,7 @@ mod config;
 mod crypto;
 mod error;
 mod keys;
+mod presets;
 mod routes;
 mod store;
 mod templates;
@@ -22,6 +23,19 @@ fn fail(message: impl std::fmt::Display) -> ! {
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let [flag, name] = args.as_slice()
+        && flag == "--print-preset"
+    {
+        match presets::get(name) {
+            Some(text) => print!("{text}"),
+            None => fail(format!(
+                "unknown preset `{name}`, known presets: {}",
+                presets::names().join(", ")
+            )),
+        }
+        return;
+    }
     let path = std::env::var("OAUTH_MOCKER_CONFIG").unwrap_or_else(|_| "config.toml".into());
     let bind = std::env::var("OAUTH_MOCKER_BIND").unwrap_or_else(|_| "127.0.0.1:8000".into());
 

@@ -2,7 +2,7 @@
 
 {% block content %}
 <h1>OAuth Mocker</h1>
-<p class="subtitle">A mock OpenID Connect provider. Issuer: <code>{{ issuer }}</code></p>
+<p class="subtitle">A mock OpenID Connect provider. Issuer: <code>{{ issuer }}</code>{% if let Some(preset) = preset %}, emulating the <code>{{ preset }}</code> preset{% endif %}</p>
 
 <h2>Endpoints</h2>
 <section class="panel">

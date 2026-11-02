@@ -44,13 +44,14 @@ The Docker build image is `rust:1.86`, so code must not use language features ne
 src/
   main.rs        startup: load config, build router, serve
   app.rs         AppState, build_router()
-  config.rs      config types, parsing, validation, TTL resolution
+  config.rs      config types, parsing, preset layering, validation, TTL resolution
+  presets.rs     built-in presets (compiled in from presets/*.toml) and the TOML merge
   keys.rs        signing key, JWKS
   crypto.rs      token generation, at_hash, PKCE
-  store.rs       TtlMap and the four in-memory stores
-  claims.rs      scope parsing, claim filtering, ID token construction
+  store.rs       TtlMap, the four in-memory stores, offline-access consents
+  claims.rs      scope parsing, claim filtering, placeholders, ID and access token claims
   error.rs       OAuthError (JSON) and PageError (HTML)
-  util.rs        issuer derivation, client redirects, response modes
+  util.rs        base URL and issuer derivation, client redirects, response modes
   templates.rs   askama structs
   routes/
     discovery.rs   /, /users, /.well-known/*
@@ -59,6 +60,8 @@ src/
     userinfo.rs    /userinfo
   tests.rs       end-to-end tests against the router
 templates/       base.html, style.css, index.html, login.html, error.html
+presets/         google.toml, okta.toml
+examples/        a full config per preset, with realistic users
 docs/DESIGN.md   this file
 ```
 
@@ -104,8 +107,18 @@ browser no longer overwrite each other.
 `grant_type=refresh_token` looks up the refresh token, checks the client, optionally narrows `scope`
 to a subset, and returns fresh tokens. A narrowed `scope` applies to the new access and ID tokens only,
 the rotated refresh token keeps the originally granted scopes (RFC 6749 section 6). With `tokens.rotate_refresh = true` (default) the old refresh
-token is consumed and a new one returned. Refresh tokens are disabled when the resolved
-`refresh_ttl` is 0.
+token is consumed and a new one returned. Without rotation the same token stays valid, and the
+response repeats it unless `tokens.echo_refresh = false` (Google omits it). Refresh tokens are disabled
+when the resolved `refresh_ttl` is 0.
+
+Whether the code exchange returns a refresh token at all is decided when the code is issued:
+
+- `tokens.refresh_when`: `always` (default), `offline_access` (the scope was granted) or
+  `access_type_offline` (the authorize request had `access_type=offline`). In that last mode
+  `access_type` must be `online` or `offline`, otherwise it is ignored.
+- `tokens.refresh_on_first_consent_only`: a refresh token only the first time a user consents to a
+  client, or when the request has `prompt=consent`. Consents live in memory until restart, and are
+  only recorded for requests that asked for offline access.
 
 ### PKCE
 
@@ -117,6 +130,14 @@ token is consumed and a new one returned. Refresh tokens are disabled when the r
 
 - Access and refresh tokens are opaque random strings with a prefix (`at_`, `rt_`), kept in memory
   with an expiry. Expired entries are never returned, and are freed by a sweep at most every 30 seconds. After `access_ttl`, `/userinfo` answers `401 invalid_token`.
+- With `tokens.access_format = "jwt"` access tokens are JWTs signed like ID tokens, and still stored
+  so `/userinfo` and expiry work the same. Claims come from `[tokens.access_claims]`, or by default
+  `sub`, `aud` and `client_id` (the client id) and `scope`, as in RFC 9068. `iss`, `iat`, `exp` and `jti`
+  are always set by the server. Configured claims may override `sub` and `aud`, Okta needs both.
+- `[tokens.access_claims]` and `[tokens.id_claims]` string values take placeholders: `{client_id}`,
+  `{user_id}`, `{email}`, `{name}`, `{issuer}` and `{scope}` (space separated). A value of exactly
+  `"{scopes}"` becomes an array. `id_claims` are added after user claims and before registered claims,
+  so they override user claims but never `iss`, `sub`, `aud` and the like.
 - The ID token is issued only when the granted scopes include `openid`. Claims: `iss`, `sub`, `aud`,
   `exp`, `iat`, `auth_time`, `nonce` (when sent), `at_hash`, plus the scope-filtered user claims.
   Registered claims always win over user claims of the same name.
@@ -124,8 +145,23 @@ token is consumed and a new one returned. Refresh tokens are disabled when the r
 
 ### Issuer
 
-`issuer` from config if set, otherwise `<scheme>://<Host header>` where the scheme comes from `use_tls`.
-The discovery document, the ID token `iss` and every endpoint URL use the same value.
+The base URL is `issuer` from config if set, otherwise `<scheme>://<Host header>` where the scheme comes
+from `use_tls`. The issuer is the base URL plus `issuer_path` (default empty, Okta uses `/oauth2/default`).
+Endpoint URLs are the base URL plus their path from `[endpoints]`, and discovery is served at
+`<issuer_path>/.well-known/openid-configuration`, as OIDC Discovery requires. Endpoint paths must start
+with `/`, must not use axum's `{}` or `*` syntax, and must not collide with each other, with discovery
+or with `/`, `/login` and `/users`.
+
+## Presets
+
+`preset = "<name>"` layers `presets/<name>.toml`, compiled into the binary, under the user's config.
+Tables merge key by key and any other value from the user's file replaces the preset's, arrays included.
+A preset sets behavior only, never `keys`, `clients`, `users` or `issuer`. The user's file is first parsed
+on its own, so errors in it keep their line numbers. `oauth_mocker --print-preset <name>` prints one.
+
+A preset turns on the provider's quirks by default, and each is a plain option the user can switch
+back. Shipped: `google` and `okta`, see the comment at the top of each file. Planned, one preset per
+process: Entra, Discord, Apple, Steam.
 
 ## Login hint
 
@@ -207,7 +243,9 @@ and exit 1, there are no panics.
 
 ```toml
 use_tls = false
+preset = "google"                       # optional, see Presets
 issuer = "http://localhost:8080"        # optional
+issuer_path = ""                        # e.g. "/oauth2/default"
 default_scope = "openid profile email"
 strict_redirect_uri = false             # true: token endpoint requires a matching redirect_uri
 login_hint = "highlight"                # "highlight", "auto" (skip the picker on one match) or "ignore"
@@ -218,6 +256,20 @@ access_ttl = 3600
 id_ttl = 3600
 refresh_ttl = 86400                     # 0 disables refresh tokens
 rotate_refresh = true
+echo_refresh = true
+refresh_when = "always"                 # "offline_access" or "access_type_offline"
+refresh_on_first_consent_only = false
+access_format = "opaque"                # or "jwt"
+[tokens.access_claims]                  # optional, JWT access token claims
+scp = "{scopes}"
+[tokens.id_claims]                      # optional, extra ID token claims
+azp = "{client_id}"
+
+[endpoints]
+authorize = "/oauth2/authorize"
+token = "/oauth2/token"
+userinfo = "/userinfo"
+jwks = "/.well-known/jwks.json"
 
 [ui]
 title = "Mock Login"
@@ -249,7 +301,7 @@ groups = ["admin", "user"]              # any JSON-compatible value
 `src/tests.rs` drives the router in-process with `tower::ServiceExt::oneshot`, no sockets.
 Covered paths: discovery, the full code flow with ID token checks, PKCE success and failure,
 refresh with rotation, access-token expiry, scope filtering, client authentication variants,
-OAuth error shapes, and simulated errors. Running `cargo test` and `cargo clippy` is part of done.
+OAuth error shapes, simulated errors, and each preset through its example config. Running `cargo test` and `cargo clippy` is part of done.
 
 ## Migration notes for v0.1 users
 

@@ -32,8 +32,8 @@ impl ResponseMode {
     }
 }
 
-/// Base URL of the provider: the configured issuer, or scheme plus `Host` header.
-pub fn issuer(config: &Config, headers: &HeaderMap) -> String {
+/// Base URL the endpoints live under: the configured `issuer`, or scheme plus `Host` header.
+pub fn base_url(config: &Config, headers: &HeaderMap) -> String {
     if let Some(issuer) = &config.issuer {
         return issuer.trim_end_matches('/').to_string();
     }
@@ -43,6 +43,11 @@ pub fn issuer(config: &Config, headers: &HeaderMap) -> String {
         .and_then(|h| h.to_str().ok())
         .unwrap_or("localhost");
     format!("{scheme}://{host}")
+}
+
+/// The issuer: the base URL plus `issuer_path`.
+pub fn issuer(config: &Config, headers: &HeaderMap) -> String {
+    format!("{}{}", base_url(config, headers), config.issuer_path)
 }
 
 /// A redirect URI must be absolute and must not carry a fragment (RFC 6749 section 3.1.2).

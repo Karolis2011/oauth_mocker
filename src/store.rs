@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -84,6 +84,10 @@ pub struct LoginSession {
     pub pkce: Option<Pkce>,
     pub response_mode: ResponseMode,
     pub login_hint: Option<String>,
+    /// `access_type=offline` was requested.
+    pub offline: bool,
+    /// `prompt` included `consent`.
+    pub prompt_consent: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +99,8 @@ pub struct AuthCode {
     pub nonce: Option<String>,
     pub pkce: Option<Pkce>,
     pub auth_time: i64,
+    /// Whether the exchange may return a refresh token.
+    pub refresh: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -112,12 +118,27 @@ pub struct RefreshGrant {
     pub auth_time: i64,
 }
 
+/// The (client, user) pairs that have consented to offline access, for as long as the server runs.
+#[derive(Default)]
+pub struct Consents(Mutex<HashSet<(String, String)>>);
+
+impl Consents {
+    /// Records the consent, returns whether it is the first.
+    pub fn insert(&self, client_id: &str, user_id: &str) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert((client_id.to_string(), user_id.to_string()))
+    }
+}
+
 #[derive(Default)]
 pub struct Stores {
     pub sessions: TtlMap<LoginSession>,
     pub codes: TtlMap<AuthCode>,
     pub access_tokens: TtlMap<AccessGrant>,
     pub refresh_tokens: TtlMap<RefreshGrant>,
+    pub consents: Consents,
 }
 
 #[cfg(test)]

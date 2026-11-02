@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use crate::app::AppState;
 use crate::claims::parse_scopes;
-use crate::config::{Client, Config, LoginHintMode, User};
+use crate::config::{Client, Config, LoginHintMode, RefreshWhen, User};
 use crate::crypto::{Pkce, PkceMethod, new_token};
 use crate::error::{PageError, page_error, render};
 use crate::store::{AuthCode, LoginSession};
@@ -38,6 +38,7 @@ pub struct AuthorizeQuery {
     response_mode: Option<String>,
     prompt: Option<String>,
     login_hint: Option<String>,
+    access_type: Option<String>,
     code_challenge: Option<String>,
     code_challenge_method: Option<String>,
 }
@@ -172,10 +173,23 @@ fn start_session(
         None => None,
     };
 
+    let prompts: Vec<&str> = non_empty(&q.prompt)
+        .map(|p| p.split_whitespace().collect())
+        .unwrap_or_default();
     // The mock has no existing login to reuse, so silent authentication cannot succeed.
-    if non_empty(&q.prompt).is_some_and(|p| p.split_whitespace().any(|p| p == "none")) {
+    if prompts.contains(&"none") {
         return Err(fail("login_required", "prompt=none cannot be satisfied.", mode));
     }
+
+    let offline = match non_empty(&q.access_type) {
+        Some("offline") => true,
+        None | Some("online") => false,
+        // Only a provider that defines access_type rejects other values.
+        Some(_) if config.tokens.refresh_when == RefreshWhen::AccessTypeOffline => {
+            return Err(fail("invalid_request", "access_type must be online or offline.", mode));
+        }
+        Some(_) => false,
+    };
 
     let session_id = new_token("ls");
     app.stores.sessions.insert(
@@ -191,6 +205,8 @@ fn start_session(
             login_hint: non_empty(&q.login_hint)
                 .filter(|_| config.login_hint != LoginHintMode::Ignore)
                 .map(String::from),
+            offline,
+            prompt_consent: prompts.contains(&"consent"),
         },
         SESSION_TTL,
     );
@@ -341,10 +357,26 @@ fn issue_code(
             nonce: session.nonce.clone(),
             pkce: session.pkce.clone(),
             auth_time: now(),
+            refresh: refresh_allowed(app, session, user),
         },
         app.config.ttls(client).code,
     );
     ("code", code)
+}
+
+/// Whether the code for this login may be exchanged for a refresh token too.
+fn refresh_allowed(app: &AppState, session: &LoginSession, user: &User) -> bool {
+    let tokens = &app.config.tokens;
+    let requested = match tokens.refresh_when {
+        RefreshWhen::Always => true,
+        RefreshWhen::OfflineAccess => session.scopes.iter().any(|s| s == "offline_access"),
+        RefreshWhen::AccessTypeOffline => session.offline,
+    };
+    if !requested {
+        return false;
+    }
+    let first = app.stores.consents.insert(&session.client_id, &user.id);
+    first || session.prompt_consent || !tokens.refresh_on_first_consent_only
 }
 
 /// Sends the user back to the client, adding `state` to `params`.

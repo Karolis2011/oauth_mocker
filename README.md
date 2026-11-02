@@ -14,6 +14,8 @@ OAuth Mocker is a lightweight mock server for simulating OAuth 2.0 and OpenID Co
 - Error simulation: deny or fail a login from the login page, or make a client's token and userinfo requests fail or stall.
 - `login_hint` support: highlight the matching account, or skip the picker entirely.
 - Account picker login page that works offline, follows the system light or dark theme, and can be restyled from `config.toml`.
+- Provider presets: `preset = "google"` or `"okta"` makes the mock behave like that provider, quirks included.
+- JWT or opaque access tokens, extra ID token claims, configurable endpoint paths and issuer path.
 - Everything configured in one `config.toml`: users, clients, keys, scopes, tokens, UI.
 
 ## Getting started
@@ -40,6 +42,8 @@ Point your application at `http://localhost:8000/.well-known/openid-configuratio
 | `OAUTH_MOCKER_BIND` | `127.0.0.1:8000` | Address to listen on, `host:port` |
 
 ## Endpoints
+
+These are the default paths, a preset or `[endpoints]` can move them.
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -83,6 +87,29 @@ email = "alice@example.com"
 [users.claims]
 groups = ["admin", "user"]
 ```
+
+### Provider presets
+
+A preset layers a built-in config under yours, so the mock behaves like a real provider. Your own values
+always win, so any quirk can be switched off.
+
+```toml
+preset = "google"
+```
+
+| Preset | Discovery | What changes |
+|--------|-----------|--------------|
+| `google` | `/.well-known/openid-configuration` | Google's paths. Refresh token only with `access_type=offline`, and only on a user's first consent unless `prompt=consent`. Refresh tokens don't rotate and refresh responses don't include one. `azp` in ID tokens. |
+| `okta` | `/oauth2/default/.well-known/openid-configuration` | Issuer `…/oauth2/default`, endpoints under `/v1`. JWT access tokens for `api://default` with `scp`, `cid`, `uid` and the login as `sub`. Refresh token only with `offline_access`, not rotated. `ver`, `amr` in ID tokens. |
+
+Ready-to-run configs with realistic users are in [examples/](examples/):
+`OAUTH_MOCKER_CONFIG=examples/google.toml cargo run`. Print a preset with
+`oauth_mocker --print-preset okta`.
+
+The options presets use are available on their own too: `issuer_path`, `[endpoints]`,
+`tokens.access_format = "jwt"` with `[tokens.access_claims]`, `[tokens.id_claims]`, and
+`tokens.refresh_when`, `refresh_on_first_consent_only` and `echo_refresh`. See
+[config.example.toml](config.example.toml).
 
 ### Strict `redirect_uri`
 

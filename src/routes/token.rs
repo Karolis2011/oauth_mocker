@@ -11,8 +11,8 @@ use base64::prelude::BASE64_STANDARD;
 use serde::{Deserialize, Serialize};
 
 use crate::app::AppState;
-use crate::claims::{IdTokenInput, id_token_claims, parse_scopes};
-use crate::config::Client;
+use crate::claims::{ClaimContext, IdTokenInput, access_token_claims, id_token_claims, parse_scopes};
+use crate::config::{AccessFormat, Client};
 use crate::crypto::{is_valid_verifier, new_token};
 use crate::error::OAuthError;
 use crate::store::{AccessGrant, RefreshGrant};
@@ -51,6 +51,8 @@ struct Grant {
     granted: Vec<String>,
     auth_time: i64,
     nonce: Option<String>,
+    /// Whether a refresh token may be returned.
+    refresh: bool,
 }
 
 pub async fn token(
@@ -222,6 +224,7 @@ fn code_grant(
             scopes: grant.scopes,
             auth_time: grant.auth_time,
             nonce: grant.nonce,
+            refresh: grant.refresh,
         },
         None,
     )
@@ -257,11 +260,14 @@ fn refresh_grant(
         }
     };
 
-    let reuse = if app.config.tokens.rotate_refresh {
+    let tokens = &app.config.tokens;
+    let (refresh, reuse) = if tokens.rotate_refresh {
         app.stores.refresh_tokens.take(token).ok_or_else(invalid)?;
-        None
+        (true, None)
+    } else if tokens.echo_refresh {
+        (true, Some(token.to_string()))
     } else {
-        Some(token.to_string())
+        (false, None)
     };
     issue_tokens(
         app,
@@ -273,13 +279,15 @@ fn refresh_grant(
             granted: stored.scopes,
             auth_time: stored.auth_time,
             nonce: None,
+            refresh,
         },
         reuse,
     )
 }
 
 /// Mints and stores the tokens for `grant`. `reuse_refresh` is returned as the refresh
-/// token instead of minting a new one, for refreshes without rotation.
+/// token instead of minting a new one, for refreshes without rotation. No refresh token
+/// is returned when the grant does not allow one.
 fn issue_tokens(
     app: &AppState,
     client: &Client,
@@ -293,7 +301,18 @@ fn issue_tokens(
         .ok_or_else(|| OAuthError::server_error("The user no longer exists"))?;
     let ttls = config.ttls(client);
 
-    let access_token = new_token("at");
+    let access_token = match config.tokens.access_format {
+        AccessFormat::Opaque => new_token("at"),
+        AccessFormat::Jwt => {
+            let ctx = ClaimContext {
+                issuer,
+                client_id: &client.client_id,
+                user,
+                scopes: &grant.scopes,
+            };
+            app.keys.sign(&access_token_claims(config, &ctx, ttls.access))?
+        }
+    };
     app.stores.access_tokens.insert(
         access_token.clone(),
         AccessGrant {
@@ -324,6 +343,7 @@ fn issue_tokens(
     };
 
     let refresh_token = match (ttls.refresh, reuse_refresh) {
+        _ if !grant.refresh => None,
         (None, _) => None,
         (Some(_), Some(token)) => Some(token),
         (Some(ttl), None) => {

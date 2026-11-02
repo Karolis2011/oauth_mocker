@@ -869,3 +869,223 @@ async fn login_hint_can_be_ignored() {
     assert!(pos(&page, "Alice") < pos(&page, "Bob"));
     assert!(!page.contains("Suggested") && !page.contains("Login hint"));
 }
+
+// Presets and the options they set.
+
+const GOOGLE_CLIENT: &str = "123456789012-mock0client0id0abcdefghijklmn.apps.googleusercontent.com";
+const GOOGLE_SECRET: &str = "GOCSPX-mock-client-secret-1234";
+const OKTA_CLIENT: &str = "0oa1mock2client3id4x5";
+const OKTA_SECRET: &str = "mock-okta-client-secret-1234567890";
+
+fn router_from(text: &str) -> Router {
+    let config = Config::from_toml(text).expect("valid config");
+    build_router(AppState::new(config).expect("keys are valid"))
+}
+
+/// Runs authorize and login at `authorize_path`, returns the code.
+async fn code_at(app: &Router, authorize_path: &str, query: &str, user: &str) -> String {
+    let reply = get(
+        app,
+        &format!("{authorize_path}?response_type=code&redirect_uri={REDIRECT_ENC}&{query}"),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER, "{}", reply.body);
+    let location = reply.location();
+    assert_eq!(location.path(), "/login", "unexpected redirect: {location}");
+    let session = query_param(&location, "session");
+    login(app, &session, user).await
+}
+
+fn query_param(url: &Url, key: &str) -> String {
+    query(url, key).unwrap_or_else(|| panic!("no `{key}` in {url}"))
+}
+
+async fn token_at(app: &Router, path: &str, body: &str, client: (&str, &str)) -> Value {
+    let reply = post_form(app, path, body, Some(&basic(client.0, client.1))).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    reply.json()
+}
+
+#[test]
+fn examples_and_presets_load() {
+    for (name, text) in [
+        ("google", include_str!("../examples/google.toml")),
+        ("okta", include_str!("../examples/okta.toml")),
+    ] {
+        let config = Config::from_toml(text).unwrap_or_else(|e| panic!("examples/{name}.toml: {e}"));
+        assert_eq!(config.preset.as_deref(), Some(name));
+    }
+    let example = include_str!("../config.example.toml");
+    let unknown = Config::from_toml(&format!("preset = \"keycloak\"\n{example}")).unwrap_err();
+    assert!(unknown.contains("google") && unknown.contains("okta"), "{unknown}");
+}
+
+#[test]
+fn the_users_config_wins_over_the_preset() {
+    let text = include_str!("../examples/google.toml")
+        .replacen("preset = \"google\"\n", "preset = \"google\"\n[tokens]\naccess_ttl = 60\n", 1);
+    let config = Config::from_toml(&text).unwrap();
+    assert_eq!(config.tokens.access_ttl, 60);
+    assert_eq!(config.tokens.id_ttl, 3600, "untouched preset values stay");
+    assert_eq!(config.endpoints.token, "/token");
+}
+
+#[test]
+fn endpoint_paths_are_validated() {
+    let example = include_str!("../config.example.toml");
+    let token = "token = \"/oauth2/token\"";
+    assert!(example.contains(token) && example.contains("issuer_path = \"\""));
+    for (issuer_path, path, expected) in [
+        ("", "/login", "used by the server"),
+        ("", "/userinfo", "duplicate"),
+        ("", "token", "must start with"),
+        ("", "/t/{id}", "not allowed"),
+        ("/o", "/o/.well-known/openid-configuration", "duplicate"),
+    ] {
+        let text = example
+            .replace(token, &format!("token = \"{path}\""))
+            .replace("issuer_path = \"\"", &format!("issuer_path = \"{issuer_path}\""));
+        let error = Config::from_toml(&text).unwrap_err();
+        assert!(error.contains(expected), "{path}: {error}");
+    }
+}
+
+#[tokio::test]
+async fn google_preset_behaves_like_google() {
+    let app = router_from(include_str!("../examples/google.toml"));
+    let client = (GOOGLE_CLIENT, GOOGLE_SECRET);
+    let user = "108734651299876543210";
+
+    let doc = get(&app, "/.well-known/openid-configuration").await.json();
+    assert_eq!(doc["issuer"], "http://localhost");
+    assert_eq!(doc["authorization_endpoint"], "http://localhost/o/oauth2/v2/auth");
+    assert_eq!(doc["token_endpoint"], "http://localhost/token");
+    assert_eq!(doc["jwks_uri"], "http://localhost/oauth2/v3/certs");
+    assert_eq!(get(&app, "/oauth2/v3/certs").await.status, StatusCode::OK);
+
+    let start = format!("client_id={}&scope=openid+email+profile", encode(GOOGLE_CLIENT));
+    let exchange = |code: String| format!("grant_type=authorization_code&code={code}");
+
+    // Online access: no refresh token.
+    let code = code_at(&app, "/o/oauth2/v2/auth", &start, user).await;
+    let tokens = token_at(&app, "/token", &exchange(code), client).await;
+    assert!(tokens.get("refresh_token").is_none());
+    assert_eq!(tokens["expires_in"], 3599);
+    let claims = jwt_payload(tokens["id_token"].as_str().unwrap());
+    assert_eq!(claims["azp"], GOOGLE_CLIENT);
+    assert_eq!(claims["picture"], "https://lh3.googleusercontent.com/a/mock-alice=s96-c");
+    assert_eq!(claims["hd"], "example.com");
+    assert!(tokens["access_token"].as_str().unwrap().starts_with("at_"), "opaque");
+
+    // Offline access: a refresh token on the first consent only, unless prompt=consent.
+    let offline = format!("{start}&access_type=offline");
+    let code = code_at(&app, "/o/oauth2/v2/auth", &offline, user).await;
+    let first = token_at(&app, "/token", &exchange(code), client).await;
+    let refresh = first["refresh_token"].as_str().expect("a refresh token on first consent");
+    let code = code_at(&app, "/o/oauth2/v2/auth", &offline, user).await;
+    let again = token_at(&app, "/token", &exchange(code), client).await;
+    assert!(again.get("refresh_token").is_none(), "no refresh token on a repeat consent");
+    let code = code_at(&app, "/o/oauth2/v2/auth", &format!("{offline}&prompt=consent"), user).await;
+    let forced = token_at(&app, "/token", &exchange(code), client).await;
+    assert!(forced["refresh_token"].is_string(), "prompt=consent asks again");
+
+    // Refreshing neither rotates nor returns the refresh token, but does return an ID token.
+    let body = format!("grant_type=refresh_token&refresh_token={refresh}");
+    let refreshed = token_at(&app, "/token", &body, client).await;
+    assert!(refreshed.get("refresh_token").is_none());
+    assert!(refreshed["id_token"].is_string());
+    token_at(&app, "/token", &body, client).await;
+
+    // access_type only takes online or offline.
+    let reply = get(
+        &app,
+        &format!("/o/oauth2/v2/auth?response_type=code&redirect_uri={REDIRECT_ENC}&{start}&access_type=forever"),
+    )
+    .await;
+    assert_eq!(query(&reply.location(), "error").as_deref(), Some("invalid_request"));
+}
+
+#[tokio::test]
+async fn okta_preset_behaves_like_okta() {
+    let app = router_from(include_str!("../examples/okta.toml"));
+    let client = (OKTA_CLIENT, OKTA_SECRET);
+    let base = "/oauth2/default";
+
+    let doc = get(&app, &format!("{base}/.well-known/openid-configuration")).await.json();
+    assert_eq!(doc["issuer"], "http://localhost/oauth2/default");
+    assert_eq!(doc["token_endpoint"], "http://localhost/oauth2/default/v1/token");
+    assert_eq!(doc["jwks_uri"], "http://localhost/oauth2/default/v1/keys");
+    assert!(doc["claims_supported"].as_array().unwrap().contains(&"idp".into()));
+    let root = get(&app, "/.well-known/openid-configuration").await;
+    assert_eq!(root.status, StatusCode::NOT_FOUND, "discovery lives under the issuer path");
+
+    let authorize_path = format!("{base}/v1/authorize");
+    let token_path = format!("{base}/v1/token");
+    let start = format!("client_id={OKTA_CLIENT}&nonce=n1&scope=openid+profile+groups");
+    let code = code_at(&app, &authorize_path, &start, "00u1alice2mock3id4x5").await;
+    let tokens = token_at(&app, &token_path, &format!("grant_type=authorization_code&code={code}"), client).await;
+    assert!(tokens.get("refresh_token").is_none(), "no offline_access, no refresh token");
+
+    let access = jwt_payload(tokens["access_token"].as_str().unwrap());
+    assert_eq!(access["iss"], "http://localhost/oauth2/default");
+    assert_eq!(access["aud"], "api://default");
+    assert_eq!(access["sub"], "alice@example.com");
+    assert_eq!(access["uid"], "00u1alice2mock3id4x5");
+    assert_eq!(access["cid"], OKTA_CLIENT);
+    assert_eq!(access["scp"], serde_json::json!(["openid", "profile", "groups"]));
+    assert_eq!(access["ver"], 1);
+    assert!(access["jti"].is_string() && access["exp"].as_i64() > access["iat"].as_i64());
+
+    let id = jwt_payload(tokens["id_token"].as_str().unwrap());
+    assert_eq!(id["iss"], "http://localhost/oauth2/default");
+    assert_eq!(id["sub"], "00u1alice2mock3id4x5");
+    assert_eq!(id["idp"], "00o1mock2org3id4x5y6");
+    assert_eq!(id["amr"], serde_json::json!(["pwd"]));
+    assert_eq!(id["preferred_username"], "alice@example.com");
+    assert_eq!(id["groups"], serde_json::json!(["Everyone", "Admins"]));
+
+    let info = send(
+        &app,
+        Request::get(format!("{base}/v1/userinfo"))
+            .header(AUTHORIZATION, format!("Bearer {}", tokens["access_token"].as_str().unwrap()))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(info.status, StatusCode::OK, "{}", info.body);
+    assert_eq!(info.json()["sub"], "00u1alice2mock3id4x5");
+
+    // offline_access brings a refresh token, which persists across refreshes.
+    let code = code_at(&app, &authorize_path, &format!("{start}+offline_access"), "00u1alice2mock3id4x5").await;
+    let tokens = token_at(&app, &token_path, &format!("grant_type=authorization_code&code={code}"), client).await;
+    let refresh = tokens["refresh_token"].as_str().expect("a refresh token");
+    let body = format!("grant_type=refresh_token&refresh_token={refresh}");
+    let refreshed = token_at(&app, &token_path, &body, client).await;
+    assert_eq!(refreshed["refresh_token"], refresh);
+}
+
+#[tokio::test]
+async fn jwt_access_tokens_default_to_rfc_9068_claims() {
+    let app = router_with("[tokens]\naccess_format = \"jwt\"\n[tokens.id_claims]\nazp = \"{client_id}\"\nwho = \"{name} <{email}>\"\nsub = \"spoofed\"");
+    let tokens = tokens_for(&app, "openid email").await;
+    let access = jwt_payload(tokens["access_token"].as_str().unwrap());
+    assert_eq!(access["sub"], "1");
+    assert_eq!(access["aud"], "my-client");
+    assert_eq!(access["client_id"], "my-client");
+    assert_eq!(access["scope"], "openid email");
+
+    let id = jwt_payload(tokens["id_token"].as_str().unwrap());
+    assert_eq!(id["azp"], "my-client");
+    assert_eq!(id["who"], "Alice <alice@example.com>");
+    assert_eq!(id["sub"], "1", "registered claims cannot be overridden");
+
+    let info = userinfo(&app, tokens["access_token"].as_str().unwrap()).await;
+    assert_eq!(info.status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn refresh_can_require_offline_access() {
+    let app = router_with("[tokens]\nrefresh_when = \"offline_access\"");
+    assert!(tokens_for(&app, "openid").await.get("refresh_token").is_none());
+    assert!(tokens_for(&app, "openid offline_access").await["refresh_token"].is_string());
+}

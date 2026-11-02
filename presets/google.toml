@@ -1,0 +1,35 @@
+# Google (accounts.google.com). Layered under your config with `preset = "google"`.
+# Print it with `oauth_mocker --print-preset google`. Any value here can be overridden.
+#
+# Quirks emulated, each can be switched off:
+#   - a refresh token only with access_type=offline, and only on the first consent of a user to a client,
+#     unless the request has prompt=consent        (refresh_when, refresh_on_first_consent_only)
+#   - refresh tokens do not rotate, and refresh responses carry no refresh_token   (rotate_refresh, echo_refresh)
+#   - ID tokens carry `azp`                                                         (id_claims)
+#
+# Google serves the token, userinfo and JWKS endpoints on other hosts (oauth2.googleapis.com,
+# openidconnect.googleapis.com, www.googleapis.com). The mock serves them on its own host, at the same paths.
+
+[endpoints]
+authorize = "/o/oauth2/v2/auth"
+token = "/token"
+userinfo = "/v1/userinfo"
+jwks = "/oauth2/v3/certs"
+
+[tokens]
+access_ttl = 3599
+id_ttl = 3600
+refresh_ttl = 15552000          # Google refresh tokens do not expire by time, 180 days stands in for that
+rotate_refresh = false
+echo_refresh = false
+refresh_when = "access_type_offline"
+refresh_on_first_consent_only = true
+
+[tokens.id_claims]
+azp = "{client_id}"
+
+[scopes.profile]
+claims = ["name", "given_name", "family_name", "picture"]
+
+[scopes.email]
+claims = ["email", "email_verified"]

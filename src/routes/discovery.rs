@@ -7,17 +7,19 @@ use serde_json::{Value, json};
 use crate::app::AppState;
 use crate::error::render;
 use crate::templates::{ClientView, IndexTemplate, PageCtx};
-use crate::util::issuer;
+use crate::util::{base_url, issuer};
 
 pub async fn index(State(app): State<AppState>, headers: HeaderMap) -> Response {
-    let issuer = issuer(&app.config, &headers);
+    let config = &app.config;
+    let base = base_url(config, &headers);
+    let paths = &config.endpoints;
     let endpoints = vec![
-        ("Discovery", format!("{issuer}/.well-known/openid-configuration")),
-        ("JWKS", format!("{issuer}/.well-known/jwks.json")),
-        ("Authorization", format!("{issuer}/oauth2/authorize")),
-        ("Token", format!("{issuer}/oauth2/token")),
-        ("UserInfo", format!("{issuer}/userinfo")),
-        ("Users", format!("{issuer}/users")),
+        ("Discovery", format!("{base}{}", config.discovery_path())),
+        ("JWKS", format!("{base}{}", paths.jwks)),
+        ("Authorization", format!("{base}{}", paths.authorize)),
+        ("Token", format!("{base}{}", paths.token)),
+        ("UserInfo", format!("{base}{}", paths.userinfo)),
+        ("Users", format!("{base}/users")),
     ];
     let clients = app
         .config
@@ -31,7 +33,8 @@ pub async fn index(State(app): State<AppState>, headers: HeaderMap) -> Response 
         .collect();
     render(&IndexTemplate {
         page: PageCtx::new(&app.config),
-        issuer,
+        issuer: issuer(config, &headers),
+        preset: config.preset.clone(),
         endpoints,
         clients,
         user_count: app.config.users.len(),
@@ -43,25 +46,22 @@ pub async fn users(State(app): State<AppState>) -> Json<Value> {
 }
 
 pub async fn openid_config(State(app): State<AppState>, headers: HeaderMap) -> Json<Value> {
-    let issuer = issuer(&app.config, &headers);
-    let mut scopes: Vec<&String> = app.config.scope_map.keys().collect();
+    let config = &app.config;
+    let base = base_url(config, &headers);
+    let paths = &config.endpoints;
+    let mut scopes: Vec<&String> = config.scope_map.keys().collect();
     scopes.sort();
     let mut claims: Vec<&str> = vec!["sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "at_hash"];
-    claims.extend(
-        app.config
-            .scope_map
-            .values()
-            .flatten()
-            .map(String::as_str),
-    );
+    claims.extend(config.scope_map.values().flatten().map(String::as_str));
+    claims.extend(config.tokens.id_claims.keys().map(String::as_str));
     claims.sort();
     claims.dedup();
     Json(json!({
-        "issuer": issuer,
-        "authorization_endpoint": format!("{issuer}/oauth2/authorize"),
-        "token_endpoint": format!("{issuer}/oauth2/token"),
-        "userinfo_endpoint": format!("{issuer}/userinfo"),
-        "jwks_uri": format!("{issuer}/.well-known/jwks.json"),
+        "issuer": issuer(config, &headers),
+        "authorization_endpoint": format!("{base}{}", paths.authorize),
+        "token_endpoint": format!("{base}{}", paths.token),
+        "userinfo_endpoint": format!("{base}{}", paths.userinfo),
+        "jwks_uri": format!("{base}{}", paths.jwks),
         "scopes_supported": scopes,
         "claims_supported": claims,
         "response_types_supported": ["code"],

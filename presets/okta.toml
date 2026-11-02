@@ -1,0 +1,46 @@
+# Okta, custom authorization server `default`. Layered under your config with `preset = "okta"`.
+# Print it with `oauth_mocker --print-preset okta`. Any value here can be overridden.
+#
+# Quirks emulated, each can be switched off:
+#   - the issuer has a path, /oauth2/default, and every endpoint lives below it  (issuer_path, endpoints)
+#   - access tokens are JWTs for the audience api://default, with `scp` as an array, `cid` and `uid`,
+#     and `sub` set to the user's login (email), not their id                   (access_format, access_claims)
+#   - a refresh token only when the offline_access scope is granted              (refresh_when)
+#   - refresh tokens persist instead of rotating                                (rotate_refresh)
+
+issuer_path = "/oauth2/default"
+
+[endpoints]
+authorize = "/oauth2/default/v1/authorize"
+token = "/oauth2/default/v1/token"
+userinfo = "/oauth2/default/v1/userinfo"
+jwks = "/oauth2/default/v1/keys"
+
+[tokens]
+access_ttl = 3600
+id_ttl = 3600
+refresh_ttl = 7776000           # 90 days, Okta's default refresh token lifetime
+rotate_refresh = false
+refresh_when = "offline_access"
+access_format = "jwt"
+
+[tokens.access_claims]
+ver = 1
+aud = "api://default"
+cid = "{client_id}"
+uid = "{user_id}"
+sub = "{email}"
+scp = "{scopes}"
+
+[tokens.id_claims]
+ver = 1
+amr = ["pwd"]
+
+[scopes.profile]
+claims = ["name", "preferred_username", "given_name", "family_name", "locale", "zoneinfo", "updated_at"]
+
+[scopes.email]
+claims = ["email", "email_verified"]
+
+[scopes.groups]
+claims = ["groups"]

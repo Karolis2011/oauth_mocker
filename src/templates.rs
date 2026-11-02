@@ -93,6 +93,7 @@ pub struct ClientView {
 pub struct IndexTemplate {
     pub page: PageCtx,
     pub issuer: String,
+    pub preset: Option<String>,
     pub endpoints: Vec<(&'static str, String)>,
     pub clients: Vec<ClientView>,
     pub user_count: usize,

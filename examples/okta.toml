@@ -1,0 +1,80 @@
+# Emulates an Okta custom authorization server named `default`. Run with OAUTH_MOCKER_CONFIG=examples/okta.toml.
+# Point your app at http://localhost:8000/oauth2/default/.well-known/openid-configuration.
+# See presets/okta.toml for what the preset changes, everything here can override it.
+preset = "okta"
+
+# Okta puts the identity provider (your org) in every ID token.
+[tokens.id_claims]
+idp = "00o1mock2org3id4x5y6"
+
+[[keys]]
+active = true
+kind = "PEM_RS256"
+kid = "ojG_49rL_kuWDYN5Zs1Bhw"
+key = """
+-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCjUcTeG9lfNeE7
+vzP3xFN0sRsIpCjgZJwcliE4NrA2a+B5rnY2C/ZYOo5LZI6AXbnG5iLcgHOPOhn+
+9pfyULBRlZ6tuFdOs+xqxtGjG9XAfbZp0wGf4Sr+3qrY8BZz7sYmsQOHn4S2Qtmr
+DC4WdMTvXa6FebR2fq4oQFYz84G7S5pLRtxt/QAcUrEhVsIEkC8854mngG/rEMpK
+eNL4TCjMw70Nv/qUBiHzGXikLJzli+uBNzJsOyJYx0pADDQUF2NCxkSf7f48pvdm
+6tD4wiqbzTG9xEGqpfT/Ah4oS/rcIuafmUulXkxa8MPF0Nf1twEFQOXP+BZliRGg
+7IJMzT1XAgMBAAECggEAKs91Vm9gZHfAKaQuICVjZvRBzNsTJ/bXgRrNbGnReQKA
+HgVgUTyDf48h25tpSzbGSt/qhXhaUlH9nHrRS6BhB5G7vXfT0vqQ31BshV/3gPSz
+CzxXcaxZU+PUTvdoO018vYmrDjL/W7NcUVzo+9PyB3i8FZrYdjMwvbZXoliTSh/U
+/ZEblNWJXskhRvt3T1UtUj/hOmX2MqOMRt7AZGhhObvTZgOOEf3eLngdC/NbjLcl
+F5KUw0BDV42Gk46P1hAIramm9DArhWn7CnBNG1hGboa/hkSoWXnUEiJEdQYrYT/u
+Ypfv0hIt8msozxFuA0j2DR3pVT+zpGlJHh9bQCTW0QKBgQDSUDmleithU5lrMH9f
+lZ6PMiH1vyulbAjTsiVXJSFe/e3JyOpY08rtAf5/lKOMYmHCXyeT2GNJzMbZCkTX
+cYR/lelBZfM6jNQdxundvPWaM7rTXLxIjbxKN8xSlgS3LAVO3ANPD1i+x8FkrvTE
+wI/yDsfMRtDmn40EF3K+r4awHwKBgQDGzCdhVZaqTGeM16ky+Uk1eN04UPRpU6fJ
+nWRwK1C76uzSnwWGfLYswXHUFoxV4TNIlI6rDYv03P7gJ1JkD9JYd1DZ1NLREy6f
+zKE97WEnh6Geuao+6Vl30G3sAi6zNSe/GOUBXpJYlvfypQkIbEKfOiDYChlMthIG
+e3nGAZBryQKBgCV01E98aq1yzighAw5q/0pRi2rRGVzk2M2bNLtIiaD5aJg/iD05
+uzJq4ICoYFhoTTDo8YuLRmOmbOPKyGf2d7qhYGGdXqxW2JBVFOHA/ZzxCZ0LLx1c
+4OP2/BTZUw2scWWSGaTC/vM7cF4WKtG/2eMqbrsbAamRUPQhmPYNHNfRAoGAOfSW
+nne3PtqbbaIJv8SRJTehNqPTPUmYJtztxQ27sa0hcZ3OnJCLA605pB0WuIq4yrYU
+iaWfYblzzKFqEaXTKttOBNNYyn8PHqMndshXhJCz+3QhP8oDvTxUb3OLbc9XUQzO
+5oFNpOoOSvz2DzCQk578qD75dTW3N5CTxbf7BJECgYA+2xUsZyYAaQe2xWLzQlPn
+pEBidOgk88KS2GTkYf4YRJEjcZdmzBKCkNQxSRwsi9NLef+nKV5ycq4io0Gwn5ZU
+n3t4AlAZCFS/QLEsCcCyQmuLVHdknSkA8WCVk8FmFsxAxwydvxm1gqxj3/NQAcTy
+K33wmjG6Y4ZxxZ478jTQJg==
+-----END PRIVATE KEY-----
+"""
+
+[[clients]]
+client_id = "0oa1mock2client3id4x5"
+client_secret = "mock-okta-client-secret-1234567890"
+name = "My App"
+
+# A SPA registered as a public client, PKCE is mandatory.
+[[clients]]
+client_id = "0oa1mock2spa3id4x5y6z"
+name = "My SPA"
+
+# Okta user ids start with 00u. The login (usually the email) is `sub` in access tokens.
+[[users]]
+id = "00u1alice2mock3id4x5"
+name = "Alice Example"
+email = "alice@example.com"
+[users.claims]
+email_verified = true
+preferred_username = "alice@example.com"
+given_name = "Alice"
+family_name = "Example"
+locale = "en_US"
+zoneinfo = "America/Los_Angeles"
+groups = ["Everyone", "Admins"]
+
+[[users]]
+id = "00u1bob2mock3id4x5y6"
+name = "Bob Example"
+email = "bob@example.com"
+[users.claims]
+email_verified = true
+preferred_username = "bob@example.com"
+given_name = "Bob"
+family_name = "Example"
+locale = "en_US"
+zoneinfo = "Europe/Vilnius"
+groups = ["Everyone"]
